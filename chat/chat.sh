@@ -1,97 +1,57 @@
 #!/bin/bash
-# IBM 3270 Mainframe Chat v4 - Short responses, no markdown
+# Simple chat - no fancy TUI
 
 OLLAMA="http://localhost:11434"
 MODEL="llama3.2:3b"
-SYSTEM="You are a helpful assistant. Keep replies to 1-2 sentences. No markdown or special formatting."
 DIR="$(dirname "$(readlink -f "$0")")"
-PARSE="$DIR/parse.py"
 
-clear
 echo "========================================"
-echo "     IBM 3270 MAINFRAME CHAT"
+echo "  TERMINAL CHAT"
 echo "========================================"
-echo ""
-echo "Connecting..."
-
-if ! curl -s --max-time 5 "$OLLAMA/api/tags" > /dev/null 2>&1; then
-    echo "ERROR: Cannot reach Ollama"
-    read -r
-    exit 1
-fi
-
-echo "Ready! Model: $MODEL"
-echo ""
+echo "Model: $MODEL"
 echo "Commands: model, clear, quit"
 echo "========================================"
+echo ""
 
-send_message() {
-    local msg="$1"
-
-    echo ""
-    echo -n "AI: "
-
-    # Use chat API with system prompt
-    local raw=$(curl -s --max-time 120 "$OLLAMA/api/chat" \
-        -H "Content-Type: application/json" \
-        -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"system\",\"content\":\"$SYSTEM\"},{\"role\":\"user\",\"content\":\"$msg\"}],\"stream\":false}" 2>/dev/null)
-
-    if [ -z "$raw" ]; then
-        echo "[No response]"
-        return
-    fi
-
-    # Parse with external Python script
-    local answer=$(echo "$raw" | python3 "$PARSE" 2>/dev/null)
-
-    if [ -z "$answer" ]; then
-        echo "[Empty response]"
-    else
-        echo "$answer" | fold -s -w 76
-    fi
-    echo ""
-}
-
-# Main loop
 while true; do
-    echo "----------------------------------------"
-    echo -n "YOU: "
+    echo -n "YOU> "
     read -r INPUT
 
     [ -z "$INPUT" ] && continue
 
     case "$INPUT" in
-        quit|exit|q)
-            echo "Goodbye!"
-            exit 0
-            ;;
-        clear)
-            clear
-            echo "=== MAINFRAME CHAT ==="
-            echo "Model: $MODEL"
-            ;;
+        quit|q) echo "Goodbye."; exit 0 ;;
+        clear) clear; echo "=== TERMINAL CHAT ==="; echo "" ;;
         model)
-            echo ""
-            echo "1) llama3.2 (3B) - fast"
-            echo "2) mongo-tom (8B)"
-            echo "3) qwen2.5-coder (32B)"
-            echo "4) llama3.1 (70B)"
-            echo "5) qwen2.5 (72B)"
-            echo "6) deepseek-r1 (70B)"
+            echo "1) llama3.2:3b  2) mongo-tom"
             echo -n "Choice: "
-            read -r pick
-            case "$pick" in
+            read -r p
+            case "$p" in
                 1) MODEL="llama3.2:3b" ;;
                 2) MODEL="hf.co/exptech/mongo-tom:BF16" ;;
-                3) MODEL="qwen2.5-coder:32b" ;;
-                4) MODEL="llama3.1:70b" ;;
-                5) MODEL="qwen2.5:72b" ;;
-                6) MODEL="deepseek-r1:70b" ;;
             esac
-            echo "Now using: $MODEL"
+            echo "Model: $MODEL"
             ;;
         *)
-            send_message "$INPUT"
+            echo "[thinking...]"
+            RESP=$(curl -s --max-time 120 "$OLLAMA/api/chat" \
+                -H "Content-Type: application/json" \
+                -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"system\",\"content\":\"Keep replies brief, 1-2 sentences. No markdown.\"},{\"role\":\"user\",\"content\":\"$INPUT\"}],\"stream\":false}" 2>/dev/null)
+
+            if [ -n "$RESP" ]; then
+                echo "$RESP" | python3 -c "
+import sys,json,re
+try:
+    d=json.load(sys.stdin)
+    t=d.get('message',{}).get('content','[error]')
+    t=re.sub(r'\*+','',t)
+    print('AI> '+t[:200])
+except: print('AI> [error]')
+" 2>/dev/null
+            else
+                echo "AI> [no response]"
+            fi
+            echo ""
             ;;
     esac
 done
