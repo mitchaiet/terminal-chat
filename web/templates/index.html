@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IBM 3270 Terminal - OEC Web</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #1a1a2e;
+            color: #00ff41;
+            font-family: 'IBM Plex Mono', 'Courier New', monospace;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        header {
+            background: #16213e;
+            padding: 15px 20px;
+            border-bottom: 2px solid #00ff41;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        h1 {
+            font-size: 1.5em;
+            text-shadow: 0 0 10px #00ff41;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        button {
+            background: #0f3460;
+            color: #00ff41;
+            border: 1px solid #00ff41;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        button:hover {
+            background: #00ff41;
+            color: #1a1a2e;
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        button.stop { border-color: #ff4141; color: #ff4141; }
+        button.stop:hover { background: #ff4141; color: #1a1a2e; }
+        select {
+            background: #0f3460;
+            color: #00ff41;
+            border: 1px solid #00ff41;
+            padding: 8px;
+            font-family: inherit;
+        }
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ff4141;
+        }
+        .status-dot.connected { background: #00ff41; }
+        #terminal-container {
+            flex: 1;
+            padding: 10px;
+            background: #0a0a0a;
+        }
+        #terminal {
+            height: 100%;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8);
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+        .modal.show { display: flex; }
+        .modal-content {
+            background: #16213e;
+            padding: 30px;
+            border: 2px solid #00ff41;
+            max-width: 400px;
+        }
+        .modal h2 { margin-bottom: 20px; }
+        .modal label { display: block; margin: 10px 0 5px; }
+        .modal input {
+            width: 100%;
+            padding: 8px;
+            background: #0f3460;
+            border: 1px solid #00ff41;
+            color: #00ff41;
+            font-family: inherit;
+        }
+        .modal-buttons { margin-top: 20px; display: flex; gap: 10px; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🖥️ IBM 3270 Terminal</h1>
+        <div class="controls">
+            <div class="status">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">Disconnected</span>
+            </div>
+            <select id="modeSelect">
+                <option value="vt100">VT100 Shell</option>
+                <option value="tn3270">TN3270</option>
+            </select>
+            <button id="startBtn">▶ Start</button>
+            <button id="stopBtn" class="stop" disabled>■ Stop</button>
+        </div>
+    </header>
+    
+    <div id="terminal-container">
+        <div id="terminal"></div>
+    </div>
+    
+    <div class="modal" id="tn3270Modal">
+        <div class="modal-content">
+            <h2>TN3270 Connection</h2>
+            <label>Mainframe Host:</label>
+            <input type="text" id="tn3270Host" placeholder="mainframe.example.com">
+            <label>Port (optional):</label>
+            <input type="text" id="tn3270Port" placeholder="23">
+            <div class="modal-buttons">
+                <button id="tn3270Connect">Connect</button>
+                <button id="tn3270Cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+        const term = new Terminal({
+            cursorBlink: true,
+            fontSize: 16,
+            fontFamily: 'IBM Plex Mono, Courier New, monospace',
+            theme: {
+                background: '#0a0a0a',
+                foreground: '#00ff41',
+                cursor: '#00ff41',
+                cursorAccent: '#0a0a0a'
+            }
+        });
+        
+        const fitAddon = new FitAddon.FitAddon();
+        term.loadAddon(fitAddon);
+        term.open(document.getElementById('terminal'));
+        fitAddon.fit();
+        
+        window.addEventListener('resize', () => fitAddon.fit());
+        
+        const socket = io();
+        let isRunning = false;
+        
+        // UI Elements
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const modeSelect = document.getElementById('modeSelect');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const modal = document.getElementById('tn3270Modal');
+        
+        function updateStatus(running) {
+            isRunning = running;
+            startBtn.disabled = running;
+            stopBtn.disabled = !running;
+            statusDot.classList.toggle('connected', running);
+            statusText.textContent = running ? 'Connected' : 'Disconnected';
+        }
+        
+        // Socket events
+        socket.on('connect', () => {
+            term.writeln('\r\n[WebSocket connected]');
+        });
+        
+        socket.on('status', (data) => {
+            updateStatus(data.running);
+        });
+        
+        socket.on('output', (data) => {
+            term.write(data.data);
+        });
+        
+        socket.on('error', (data) => {
+            term.writeln('\r\n[Error: ' + data.message + ']');
+        });
+        
+        // Terminal input
+        term.onData((data) => {
+            if (isRunning) {
+                socket.emit('input', { data: data });
+            }
+        });
+        
+        term.onResize((size) => {
+            socket.emit('resize', { rows: size.rows, cols: size.cols });
+        });
+        
+        // Button handlers
+        startBtn.addEventListener('click', () => {
+            const mode = modeSelect.value;
+            if (mode === 'tn3270') {
+                modal.classList.add('show');
+            } else {
+                socket.emit('start', { mode: 'vt100', cmd: '/bin/bash -l' });
+            }
+        });
+        
+        stopBtn.addEventListener('click', () => {
+            socket.emit('stop');
+        });
+        
+        // TN3270 modal
+        document.getElementById('tn3270Connect').addEventListener('click', () => {
+            const host = document.getElementById('tn3270Host').value;
+            const port = document.getElementById('tn3270Port').value || '23';
+            if (host) {
+                socket.emit('start', { mode: 'tn3270', cmd: host + ':' + port });
+                modal.classList.remove('show');
+            }
+        });
+        
+        document.getElementById('tn3270Cancel').addEventListener('click', () => {
+            modal.classList.remove('show');
+        });
+        
+        // Initial message
+        term.writeln('IBM 3270 Terminal - OEC Web Controller');
+        term.writeln('========================================');
+        term.writeln('Select mode and click Start to begin.');
+        term.writeln('');
+    </script>
+</body>
+</html>

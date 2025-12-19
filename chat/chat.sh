@@ -4,7 +4,8 @@
 OLLAMA="http://localhost:11434"
 MODEL="llama3.2:3b"
 SYSTEM="You are a helpful assistant. Keep replies to 1-2 sentences. No markdown or special formatting."
-PARSE="$HOME/mainframe-chat/parse.py"
+DIR="$(dirname "$(readlink -f "$0")")"
+PARSE="$DIR/parse.py"
 
 clear
 echo "========================================"

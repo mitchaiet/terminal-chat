@@ -1,0 +1,6 @@
+[submodule "oec"]
+	path = oec
+	url = https://github.com/lowobservable/oec.git
+[submodule "asciiterm"]
+	path = asciiterm
+	url = https://github.com/mitchaiet/ASCIITerm.git
