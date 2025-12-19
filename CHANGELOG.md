@@ -32,3 +32,8 @@
 - Keyboard: Memorex 122-key (IBM-TYPEWRITER layout)
 - Controller: oec in VT100 mode
 - Backend: NVIDIA GB10 with Ollama
+
+### v1.1 - Readline Fix (WORKING)
+- Changed `read -r` to `read -e` 
+- `read -e` enables readline for proper backspace/arrow keys
+- This is the key fix!
